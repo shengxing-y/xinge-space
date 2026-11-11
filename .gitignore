@@ -1,0 +1,27 @@
+# Personal records and generated exports must never enter source control.
+/data/
+/site/
+/backups/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite3-*
+*backup*.json
+*备份*.json
+
+# Credentials and local configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local tooling and artifacts.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+.DS_Store
+Thumbs.db
