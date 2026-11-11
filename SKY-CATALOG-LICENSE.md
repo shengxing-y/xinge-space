@@ -17,6 +17,6 @@ This notice applies to the catalog data and derived subset, not automatically to
 
 ## Display and calculation limits
 
-The observer is a city-center approximation in Xinzhou, Shanxi (38.4177°N, 112.7335°E), looking toward Shenyang, Liaoning (41.8057°N, 123.4315°E). Coordinates describe reference points, not a user's location or a surveyed observation site.
+The observer reference is 38.4177°N, 112.7335°E; the direction reference is 41.8057°N, 123.4315°E. Coordinates describe reference points, not a user's location or a surveyed observation site.
 
 The application selects that Chinese calendar day's evening solar-center altitude −6° or morning altitude −12°, applies approximate precession from J2000, and projects geometrical horizontal star positions. Local terrain, weather, atmospheric extinction/refraction, nutation, aberration, and stellar proper motion are not modeled. Display magnitude cutoffs are aesthetic visibility approximations, not observing guarantees. The fixed Venus theme control and transition rotation are deliberately artistic exceptions, not ephemeris predictions.
