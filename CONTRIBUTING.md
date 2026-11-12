@@ -7,8 +7,10 @@
 需要 Python 3.10+；星空测试另需已安装的 Node.js，不需要 npm 依赖。
 
 ```sh
-python -m py_compile server.py export_static.py verify.py
+python -m py_compile server.py export_static.py verify.py build_assets.py sync_site.py
+python build_assets.py --check
 python verify.py
+node --test activity.test.cjs theme.test.cjs reader.test.cjs star-identify.test.cjs sky-names.test.cjs
 node sky.test.cjs
 ```
 

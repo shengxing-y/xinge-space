@@ -46,6 +46,7 @@
   --pigment-earth:rgba(212,173,146,.3);
   --pigment-ink:rgba(248,237,223,.2);
   --hm-empty:#53455f;
+  --activity-0:#85704e;--activity-1:#a68c61;--activity-2:#ccb078;--activity-3:#f0cb8a;
   --frame-shadow:rgba(22,17,37,.22);
   --card-shadow:0 3px 16px rgba(24,17,34,.14);
   --card-hover-shadow:0 18px 42px -10px rgba(24,17,34,.35);
@@ -133,6 +134,7 @@ body[data-theme="dawn"]{
   --pigment-earth:rgba(176,138,110,.55);
   --pigment-ink:rgba(237,233,220,.35);
   --hm-empty:#1c3040;
+  --activity-0:#456777;--activity-1:#618797;--activity-2:#7ba8b9;--activity-3:#96c6d5;
   --frame-shadow:rgba(0,0,0,.12);
   --card-shadow:0 2px 8px rgba(0,0,0,.14);
   --card-hover-shadow:0 10px 28px rgba(0,0,0,.24);
@@ -153,8 +155,14 @@ body[data-theme="dawn"]{
 /* 天光与核心纸墨由同一个低频调度器渐染，不做全页高刷变量动画。 */
 header,main,footer,.sky-control{position:relative;z-index:1}
 /* 星空主题入口占据独立文档流，canvas 仅以 orb 中心绘制金星。 */
-.sky-control{display:flex;justify-content:flex-end;align-items:center;max-width:1180px;min-height:88px;margin:auto;padding:12px max(var(--page-gutter),env(safe-area-inset-right)) 12px max(var(--page-gutter),env(safe-area-inset-left))}
+.sky-control{display:flex;justify-content:flex-end;gap:16px;align-items:center;max-width:1180px;min-height:88px;margin:auto;padding:12px max(var(--page-gutter),env(safe-area-inset-right)) 12px max(var(--page-gutter),env(safe-area-inset-left))}
 .sky-control[data-sky-theme="dawn"]{justify-content:flex-start}
+.sky-control[data-sky-theme="dawn"] .sky-meta{order:1}
+.sky-meta{order:-1;min-width:0;max-width:calc(100% - 72px);text-align:right}
+.sky-control[data-sky-theme="dawn"] .sky-meta{text-align:left}
+#sky-when{position:static;margin:0;color:var(--muted);font-size:11px;line-height:1.8;letter-spacing:.04em;overflow-wrap:anywhere}
+#theme-auto{font-size:11px;padding:4px 0;color:var(--ink-soft);text-decoration:underline;text-underline-offset:3px}
+#theme-auto:hover{color:var(--ochre)}
 .venus-toggle{position:relative;display:block;width:56px;height:56px;flex:none;padding:4px;border-radius:0;touch-action:manipulation;user-select:none;-webkit-user-select:none}
 .venus-orb{display:block;width:48px;height:48px;background:transparent;border:0;border-radius:50%}
 .venus-caption{position:absolute;top:calc(100% + 3px);right:0;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .5s ease;font-size:11px;letter-spacing:.18em;color:var(--ink-soft)}
@@ -249,21 +257,37 @@ h2{font-size:29px;letter-spacing:3px;margin:0 0 15px}
 .search input{background:none;border:0;width:170px;outline:none;font-size:14px;color:var(--ink)}
 #month{background:var(--paper-2);font-size:13px;border:1px solid var(--line-deep);padding:5px 8px;border-radius:2px;color:var(--ink-soft);max-width:160px}
 
-/* ===== 岁时记 · 热力图 ===== */
-.heat{margin:46px 0 0}
+/* ===== 岁时星图：每天一颗星，亮度与大小共同表达篇数 ===== */
+.heat{margin:46px 0 0;min-width:0}
 .heat-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;gap:12px;flex-wrap:wrap}
 .heat-head>div{display:flex;flex-direction:column;gap:3px}
 .heat-stats{font-size:12px;color:var(--muted);letter-spacing:1px}
-.hm-legend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);letter-spacing:1px;flex:none}
-.hm-legend .hm-cell{width:10px;height:10px}
-.heatmap{display:flex;gap:3px;overflow-x:auto;padding:2px 2px 8px}
-.hm-col{display:flex;flex-direction:column;gap:3px;flex:none}
-.hm-cell{width:11px;height:11px;border-radius:2px;background:var(--hm-empty);display:block}
-.hm-1{background:var(--hm1)}
-.hm-2{background:var(--hm2)}
-.hm-3{background:var(--ochre)}
-.hm-today{box-shadow:0 0 0 1px var(--ochre)}
+.hm-legend{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted);letter-spacing:1px;flex-wrap:wrap}
+.hm-legend>span{display:inline-flex;align-items:center;gap:3px}
+.heatmap{display:flex;gap:2px;overflow-x:auto;max-width:100%;padding:4px 2px 12px;scrollbar-width:thin}
+.activity-week{display:flex;flex-direction:column;gap:2px;flex:none}
+.activity-star,.activity-spacer{display:grid;place-items:center;flex:none;width:18px;height:18px;padding:0;border-radius:3px}
+.activity-star{color:var(--activity-color);position:relative;touch-action:manipulation}
+.activity-star-shape{display:block;width:var(--star-size,5px);height:var(--star-size,5px);background:currentColor;clip-path:polygon(50% 0,63% 35%,100% 50%,63% 65%,50% 100%,37% 65%,0 50%,37% 35%);pointer-events:none}
+.level-0{--activity-color:var(--activity-0);--star-size:4px}
+.level-1{--activity-color:var(--activity-1);--star-size:8px}
+.level-2{--activity-color:var(--activity-2);--star-size:11px}
+.level-3{--activity-color:var(--activity-3);--star-size:14px}
+.activity-star.is-today::after{content:"";position:absolute;bottom:0;width:3px;height:2px;background:var(--ink)}
+.activity-star:hover,.activity-star:focus-visible{background:var(--hover-bg);outline:1px solid var(--ochre);outline-offset:-1px}
+.activity-details{margin-top:8px;font-size:12px;color:var(--muted)}
+.activity-details summary{cursor:pointer;width:fit-content;padding:6px 0}
+.activity-details[open]{max-height:280px;overflow:auto}
+.activity-table{width:100%;max-width:520px;border-collapse:collapse;margin:10px 0;color:var(--ink-soft);font-size:12px}
+.activity-table caption{text-align:left;margin-bottom:8px;color:var(--muted)}
+.activity-table th,.activity-table td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--line);font-weight:400}
 #hm-tip{position:fixed;z-index:300;pointer-events:none;background:var(--floating-bg);border:1px solid var(--line-deep);color:var(--ink);font-size:12px;letter-spacing:1px;padding:5px 11px;border-radius:3px;box-shadow:var(--tip-shadow);white-space:nowrap}
+@media(forced-colors:active){.activity-star-shape{background:CanvasText}.activity-star{color:CanvasText}.activity-star.is-today{outline:1px solid Highlight}}
+
+/* 认星提示仅按需显示，不改变星空绘制与页面命中层。 */
+#star-tip{position:fixed;z-index:90;max-width:min(300px,calc(100vw - 24px));padding:10px 14px;border:1px solid var(--line-deep);border-radius:4px;background:var(--floating-bg);color:var(--ink);box-shadow:var(--tip-shadow);font-size:12px;line-height:1.8;letter-spacing:.04em;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
+#star-identify-keyboard{position:fixed;top:12px;left:50%;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#star-identify-keyboard:focus-visible{z-index:100;width:auto;height:auto;margin:0;padding:10px 16px;clip:auto;clip-path:none;transform:translateX(-50%);background:var(--floating-bg);color:var(--ink);border:1px solid var(--line-deep);border-radius:4px;font-size:13px}
 
 /* 等尺寸卡片网格 */
 .entries{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;min-height:150px}
@@ -343,6 +367,21 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent-glow-stro
 .dialog-bottom span{font-size:12px;color:var(--muted)}
 .prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:2.05;color:var(--ink-soft)}
 .reader-image{max-width:100%;max-height:65vh;display:block;object-fit:contain;margin:20px auto;border:1px solid var(--line-deep);padding:10px;background:var(--mat)}
+/* 阅读器只滚动一层，关闭区始终留在视野内。 */
+#reader{--reader-gutter:36px;width:min(740px,calc(100% - 32px));max-height:90vh;max-height:calc(100dvh - 48px);padding:0 var(--reader-gutter) 32px;overflow:auto;overscroll-behavior:contain;scroll-behavior:auto}
+#reader .reader-top{position:sticky;top:0;z-index:3;align-items:center;background:var(--paper-2);margin:0 calc(-1 * var(--reader-gutter)) 24px;padding:14px var(--reader-gutter);border-bottom:1px solid var(--line)}
+#reader .reader-top .eyebrow{margin:0;min-width:0;overflow-wrap:anywhere;font-size:11px;letter-spacing:1px;animation:none}
+#reader .reader-top .close{display:grid;place-items:center;flex:none;width:44px;height:44px;padding:0}
+#reader-title{font-size:32px;line-height:1.55;letter-spacing:1px;margin:0 auto 24px;max-width:36rem;overflow-wrap:anywhere}
+#reader .prose{max-width:36rem;margin:auto;font-size:17px;line-height:1.95;letter-spacing:.02em;tab-size:4}
+#reader-tags{max-width:36rem;margin:24px auto 0;overflow-wrap:anywhere}
+#reader .dialog-bottom{margin-top:28px}
+@media(max-width:640px){
+  #reader{--reader-gutter:20px;width:calc(100% - 24px);max-height:92vh;max-height:calc(100dvh - 24px);padding-bottom:max(24px,env(safe-area-inset-bottom))}
+  #reader .reader-top{padding-top:max(10px,env(safe-area-inset-top));padding-bottom:10px;margin-bottom:20px}
+  #reader-title{font-size:26px;margin-bottom:20px}
+  #reader .prose{font-size:16px;line-height:1.95}
+}
 .image-preview{max-width:100%;max-height:200px;object-fit:contain}
 .tags{font-size:14px;color:var(--muted)}
 .danger,.error{color:var(--cinnabar)}
@@ -444,9 +483,9 @@ body.theme-fallback :is(.entry,.verse,.echo,nav a,h1,h2,h3,p){transition:backgro
   .vertical{font-size:19px;letter-spacing:5px}
   .verse-seal{margin-top:52px}
   .echo{padding:14px 16px;gap:14px}
-  .hm-cell{width:8px;height:8px}
-  .hm-col{gap:2px}
-  .heatmap{gap:2px}
+  .activity-star,.activity-spacer{width:24px;height:24px}
+  .heatmap{gap:0}
+  .activity-week{gap:0}
   .heat{margin-top:34px}
   .entries{grid-template-columns:minmax(0,1fr)}
   .tools{flex-wrap:wrap}

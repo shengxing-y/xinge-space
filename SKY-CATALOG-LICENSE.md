@@ -15,6 +15,12 @@ This derived catalog subset is shared under **CC BY-SA 4.0**. Retain attribution
 
 This notice applies to the catalog data and derived subset, not automatically to the website's application code, journal entries, images, or audio.
 
+## Identification metadata
+
+`sky-names.js` is an additional CC BY-SA 4.0 HYG v4.1 derivative: 145 entries with a non-empty upstream `proper` name and visual magnitude ≤3 (excluding Sol), keyed by the original HYG ID. Retained proper names and constellation abbreviations were cross-matched by ID, not by brightness ordering or approximate sky position. Standard constellation abbreviations are presented with Chinese translations.
+
+Forty-six common Chinese bright-star names were checked against the Hong Kong Space Museum's [English–Chinese glossary of bright stars](https://hk.space.museum/sc/web/spm/resources/teachers-corner/constellations-and-myths/glossary-of-bright-stars.html). Entries without a verified Chinese name retain their upstream English name. Naming facts are used for identification; this does not imply endorsement by the museum or catalog authors. The website performs no runtime request to these sources.
+
 ## Display and calculation limits
 
 The observer reference is 38.4177°N, 112.7335°E; the direction reference is 41.8057°N, 123.4315°E. Coordinates describe reference points, not a user's location or a surveyed observation site.
