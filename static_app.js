@@ -338,6 +338,11 @@
     if (states.get(state.dialog) !== state || state.dialog.open) return;
     const doc = state.dialog.ownerDocument;
     const win = doc.defaultView;
+    const lightbox = doc.getElementById('lightbox');
+    if (lightbox && !lightbox.hidden) {
+      lightbox.addEventListener('lightboxclose', () => win.requestAnimationFrame(() => release(state)), { once: true });
+      return;
+    }
     const next = doc.querySelector('dialog[open]');
     if (next) {
       // Editing can immediately replace the reader. Keep its scroll lock and focus.
@@ -408,6 +413,268 @@
 
   root.ReaderView = { open };
 }(typeof globalThis !== 'undefined' ? globalThis : this));
+/* Hash routing and history ownership; UI and entry lookup stay with the caller. */
+(function (root, factory) {
+  'use strict';
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else if (typeof define === 'function' && define.amd) define([], factory);
+  else root.EntryRoute = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+  const KEY = '__xjRoute';
+  const MARKER = 'xj-entry-route-v1';
+  const VIEWS = ['home', 'work', 'art', 'life', 'music', 'diary'];
+  const validView = (view, allowDiary) => VIEWS.includes(view) && (allowDiary || view !== 'diary');
+  const validId = id => typeof id === 'string' && id.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(id);
+  const missing = () => ({ kind: 'missing', from: 'home' });
+
+  function parse(hash, allowDiary = false) {
+    if (typeof hash !== 'string') return missing();
+    if (hash === '' || hash === '#') return { kind: 'list', view: 'home' };
+    if (hash[0] !== '#') return missing();
+    const value = hash.slice(1);
+    if (validView(value, allowDiary)) return { kind: 'list', view: value };
+    const match = /^entry\/([^/?#]+)(?:\?from=([^&#=?]+))?$/.exec(value);
+    if (!match) return missing();
+    try {
+      const id = decodeURIComponent(match[1]);
+      const from = match[2] === undefined ? 'home' : decodeURIComponent(match[2]);
+      if (!validId(id) || !validView(from, allowDiary)) return missing();
+      return { kind: 'entry', id, from };
+    } catch (_) {
+      return missing();
+    }
+  }
+
+  function encode(id, from = 'home') {
+    if (!validId(id)) throw new TypeError('Entry id must be a non-empty string without control characters');
+    return '#entry/' + encodeURIComponent(id) + '?from=' + (validView(from, true) ? from : 'home');
+  }
+
+  function create(options) {
+    options = options || {};
+    const win = options.window || (typeof window !== 'undefined' ? window : null);
+    if (!win || !win.history || !win.location) throw new TypeError('EntryRoute requires a window');
+    const allowDiary = options.allowDiary === true;
+    const getContext = options.getContext || (() => ({}));
+    const onList = options.onList || (() => {});
+    const onEntry = options.onEntry || (() => {});
+    const onMissing = options.onMissing || (() => {});
+    // A fresh closure token intentionally makes reloads and other router instances unowned.
+    // Do not rely on a public marker or history.length as proof that Back is safe.
+    const session = Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+    const lists = new Map();
+    const entries = new Map();
+    let serial = 0, started = false, scheduled = false, backing = false, last = '';
+    const route = () => parse(win.location.hash, allowDiary);
+    const defaultContext = view => ({ view, filter: 'all', search: '', month: '', scrollY: 0 });
+    function context(value, view) {
+      value = value || {};
+      return {
+        view,
+        filter: value.filter === 'all' || validView(value.filter, allowDiary) && value.filter !== 'home' ? value.filter : 'all',
+        search: typeof value.search === 'string' ? value.search : '',
+        month: typeof value.month === 'string' ? value.month : '',
+        scrollY: Number.isFinite(value.scrollY) && value.scrollY >= 0 ? value.scrollY : 0,
+      };
+    }
+    function marker() {
+      const state = win.history.state;
+      const data = state && state[KEY];
+      return data && data.marker === MARKER && data.session === session ? data : null;
+    }
+    function listContext(data, view) {
+      const saved = data && lists.get(data.listId);
+      return saved && saved.view === view ? context(saved, view) : defaultContext(view);
+    }
+    function entryMarker(current) {
+      const data = marker();
+      const issued = data && entries.get(data.entryId);
+      return current.kind === 'entry' && data && data.kind === 'entry' && issued &&
+        issued.id === current.id && issued.from === current.from && issued.listId === data.listId &&
+        issued.owned === data.owned ? data : null;
+    }
+    function write(method, hash, data) {
+      // Preserve other history users' top-level fields; replace only our namespace.
+      const state = Object.assign({}, win.history.state || {});
+      state[KEY] = data;
+      win.history[method](state, '', hash);
+    }
+    function listState(saved) {
+      const listId = ++serial;
+      lists.set(listId, context(saved, saved.view));
+      return { marker: MARKER, session, kind: 'list', listId, listcontext: context(saved, saved.view), owned: false };
+    }
+    function entryState(current, saved, owned, listId) {
+      if (!listId) {
+        listId = ++serial;
+        lists.set(listId, context(saved, current.from));
+      }
+      const entryId = ++serial;
+      entries.set(entryId, { id: current.id, from: current.from, listId, owned });
+      return { marker: MARKER, session, kind: 'entry', entryId, listId,
+        id: current.id, from: current.from, listcontext: context(saved, current.from), owned };
+    }
+    function identity() {
+      const data = marker();
+      return JSON.stringify([win.location.hash, data && data.kind, data && data.listId, data && data.entryId]);
+    }
+    function apply() {
+      const key = identity();
+      if (last === key) return;
+      last = key;
+      backing = false;
+      const current = route();
+      if (current.kind === 'entry') {
+        const data = entryMarker(current);
+        const saved = listContext(data, current.from);
+        onEntry(current.id, current.from, saved);
+      } else if (current.kind === 'list') {
+        const data = marker();
+        onList(listContext(data && data.kind === 'list' ? data : null, current.view));
+      } else {
+        onMissing(defaultContext('home'));
+      }
+    }
+    function schedule() {
+      if (scheduled) return;
+      scheduled = true;
+      // The identity check also deduplicates events delivered in separate browser tasks.
+      Promise.resolve().then(() => { scheduled = false; apply(); });
+    }
+    function start() {
+      if (started) return api;
+      started = true;
+      win.addEventListener('popstate', schedule);
+      win.addEventListener('hashchange', schedule);
+      apply();
+      return api;
+    }
+    function open(id) {
+      const current = route();
+      if (current.kind === 'entry') return replace(id);
+      const raw = getContext() || {};
+      const from = current.kind === 'list' ? current.view : validView(raw.view, allowDiary) ? raw.view : 'home';
+      // Snapshot before onEntry can lock the reader/body and change scrollY.
+      const saved = context(raw, from);
+      const next = { kind: 'entry', id, from };
+      const hash = encode(id, from);
+      const base = listState(saved);
+      write('replaceState', '#' + from, base);
+      write('pushState', hash, entryState(next, saved, true, base.listId));
+      apply();
+      return api;
+    }
+    function replace(id) {
+      const current = route();
+      if (current.kind !== 'entry') return open(id);
+      const data = entryMarker(current);
+      const saved = listContext(data, current.from);
+      const next = { kind: 'entry', id, from: current.from };
+      write('replaceState', encode(id, current.from), entryState(next, saved, !!(data && data.owned), data && data.listId));
+      apply();
+      return api;
+    }
+    function exit(notify) {
+      const current = route();
+      if (current.kind === 'list') return api;
+      const from = current.kind === 'entry' ? current.from : 'home';
+      const saved = listContext(entryMarker(current), from);
+      write('replaceState', '#' + from, listState(saved));
+      backing = false;
+      if (notify) apply();
+      else last = identity();
+      return api;
+    }
+    function close(settings) {
+      const current = route();
+      if (current.kind === 'list' || backing) return api;
+      const data = entryMarker(current);
+      if (!(settings && settings.replace) && data && data.owned && lists.has(data.listId)) {
+        backing = true;
+        win.history.back();
+        return api;
+      }
+      return exit(true);
+    }
+    const api = { start, open, replace, close, leave: () => exit(true), clear: () => exit(false) };
+    return api;
+  }
+
+  return { parse, encode, create };
+});
+/* Share the current deployment URL; never invent a public site for local content. */
+(function (root) {
+  'use strict';
+  function localAddress(url) {
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'file:' || host === 'localhost' || host.endsWith('.localhost') ||
+      host === '[::1]' || host.startsWith('127.') || host.startsWith('10.') || host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith('.local');
+  }
+  async function copy(entry, from) {
+    if (!entry || entry.category === 'diary') return;
+    const doc = document, url = new URL(location.href);
+    url.hash = EntryRoute.encode(entry.id, from);
+    const text = url.href;
+    const note = localAddress(url) ? '这是本地地址，不能作为公网分享链接。上线后请在网站上复制链接。' : '复制此链接即可直达这篇内容。';
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      let status = doc.getElementById('share-status');
+      if (!status) {
+        status = doc.createElement('div'); status.id = 'share-status'; status.setAttribute('role', 'status');
+        doc.body.appendChild(status);
+      }
+      status.textContent = localAddress(url) ? '已复制本地链接；仅本机／局域网可用。' : '文章链接已复制。';
+      status.hidden = false;
+      clearTimeout(status.hideTimer);
+      status.hideTimer = setTimeout(() => { status.hidden = true; }, 4000);
+    } catch (e) {
+      let dialog = doc.getElementById('share-dialog');
+      if (!dialog) {
+        dialog = doc.createElement('dialog'); dialog.id = 'share-dialog';
+        dialog.setAttribute('aria-labelledby', 'share-title');
+        const title = doc.createElement('h2'); title.id = 'share-title'; title.textContent = '复制文章链接';
+        const description = doc.createElement('p'); description.className = 'share-note';
+        const input = doc.createElement('input'); input.type = 'text'; input.readOnly = true; input.setAttribute('aria-label', '文章链接');
+        const close = doc.createElement('button'); close.type = 'button'; close.className = 'primary'; close.textContent = '完成'; close.onclick = () => dialog.close();
+        dialog.append(title, description, input, close); doc.body.appendChild(dialog);
+      }
+      dialog.querySelector('p').textContent = note + ' 浏览器未允许自动复制，请选中后手动复制。';
+      const input = dialog.querySelector('input'); input.value = text;
+      dialog.showModal(); input.focus(); input.select();
+    }
+  }
+  root.EntryShare = { copy, localAddress };
+}(typeof globalThis !== 'undefined' ? globalThis : this));
+/* Shared cards and homepage-only pin/selection policy. */
+(function (root, factory) {
+  'use strict';
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.EntryPresentation = factory();
+}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const publicEntry = entry => ['work', 'art', 'life', 'music'].includes(entry.category);
+  const marked = value => value === true || value === 1;
+  function ordered(entries, homepage) {
+    return entries.map((entry, index) => ({ entry, index })).sort((a, b) =>
+      homepage ? Number(publicEntry(b.entry) && marked(b.entry.pinned)) - Number(publicEntry(a.entry) && marked(a.entry.pinned)) || a.index - b.index : a.index - b.index
+    ).map(item => item.entry);
+  }
+  function selections(entries) {
+    return entries.filter(entry => publicEntry(entry) && marked(entry.featured));
+  }
+  function card(entry, names) {
+    const e = entry;
+    const pin = publicEntry(e) && marked(e.pinned);
+    const featured = publicEntry(e) && marked(e.featured);
+    const badges = `${pin ? '<span class="entry-badge">置顶</span>' : ''}${featured ? '<span class="entry-badge">精选</span>' : ''}`;
+    return `<article class="entry cat-${escape(e.category)}${e.image ? ' framed' : ''}" data-id="${escape(e.id)}"><button type="button" class="entry-open" aria-label="阅读：${escape(e.title)}"></button>${e.image ? `<img src="${escape(e.image)}" alt="${escape(e.title)}的附图" loading="lazy">` : ''}<div class="entry-meta"><span class="entry-category">${escape(names[e.category] || e.category)}</span><time>${escape((e.day || '').replaceAll('-', '.'))}</time></div><h3>${escape(e.title)}</h3><p>${escape(e.body || (e.category === 'music' ? '这一页，留给一段旋律。' : '这一页，留给一张图。'))}</p><div class="entry-bottom"><div class="entry-labels">${badges}<span class="tags">${escape((e.tags || '').split(/[,，]/).filter(Boolean).map(t => '# ' + t.trim()).join('　'))}</span></div>${e.audio ? `<button type="button" class="card-play" data-play="${escape(e.id)}"></button>` : ''}</div></article>`;
+  }
+  return { ordered, selections, card };
+}));
 'use strict';
 /* 心歌随录 · 静态展示版（由 export_static.py 生成站点时内嵌，只读，无日记） */
 const $ = id => document.getElementById(id);
@@ -422,7 +689,57 @@ let playingId=null;
 function playTrack(id){const e=DATA.entries.find(x=>x.id===id);if(!e||!e.audio)return;const pa=$('player-audio');if(playingId===id&&!pa.paused){pa.pause();return;}if(playingId!==id)pa.src=audioURL(e.id,e.audio);playingId=id;$('player-title').textContent=e.title;$('player').hidden=false;pa.play().catch(()=>{});}
 function syncPlayButtons(){const on=id=>id===playingId&&!$('player-audio').paused;document.querySelectorAll('[data-play]').forEach(b=>{const p=on(b.dataset.play);b.classList.toggle('playing',p);b.textContent=p?'⏸':'▶';b.setAttribute('aria-label',p?'暂停':'播放');b.title=p?'暂停':'播放';});}
 
-function route(){view=location.hash.slice(1);if(!['home',...Object.keys(names)].includes(view))view='home';filter='all';$('search').value='';$('month').value='';render();}
+let entryRouter, readerRouteCloses=0;
+function dismissReader(){if($('reader').open){readerRouteCloses++;$('reader').close();}}
+function route(){if(entryRouter)entryRouter.start();}
+function applyList(context){
+  dismissReader();
+  dismissLightbox();
+  view=context.view||'home';filter=context.filter||'all';
+  $('search').value=context.search||'';$('month').value=context.month||'';
+  render();
+  if(Number.isFinite(context.scrollY))requestAnimationFrame(()=>window.scrollTo({top:context.scrollY,behavior:'instant'}));
+}
+function startEntryRoutes(){
+  entryRouter=EntryRoute.create({window,allowDiary:false,
+    getContext:()=>({view,filter,search:$('search').value,month:$('month').value,scrollY:window.scrollY}),
+    onList:applyList,
+    onEntry:(id,from,context)=>{
+      if(view!==from||filter!==(context?.filter||'all')||$('search').value!==(context?.search||'')||$('month').value!==(context?.month||'')||!$('entries').children.length){view=from;filter=context?.filter||'all';$('search').value=context?.search||'';$('month').value=context?.month||'';render();}
+      showReader(id);
+    },
+    onMissing:()=>showMissing()
+  });
+  $('reader').addEventListener('close',()=>{
+    if(readerRouteCloses){readerRouteCloses--;return;}
+    if(!$('reader').open&&EntryRoute.parse(location.hash,false).kind!=='list'&&!document.querySelector('dialog[open]'))entryRouter.close();
+  });
+  entryRouter.start();
+}
+function showMissing(){
+  dismissLightbox();reading=null;
+  $('reader-meta').textContent='链接暂不可用';$('reader-title').textContent='这一页不存在或尚未公开';
+  $('reader-body').textContent='它可能已被移除，或还没有导出到当前网站。关闭后可返回栏目继续浏览。';
+  $('reader-tags').textContent='';$('reader-image').hidden=true;
+  updateShare(null);
+  ReaderView.open($('reader'),'');
+}
+function shareButton(container,id){
+  let button=$(id);if(button)return button;
+  button=document.createElement('button');button.type='button';button.id=id;button.className='entry-share';button.textContent='复制链接';
+  button.onclick=()=>EntryShare.copy(DATA.entries.find(e=>e.id===reading),view);
+  container.appendChild(button);return button;
+}
+function updateShare(entry){
+  const top=$('reader').querySelector('.dialog-top');
+  const actions=top.querySelector('.reader-actions')||document.createElement('div');
+  actions.className='reader-actions';if(!actions.parentNode){const close=top.querySelector('.close');top.appendChild(actions);actions.appendChild(close);}
+  const share=shareButton(actions,'reader-share');actions.prepend(share);share.hidden=!entry||entry.category==='diary';
+  const caption=$('lightbox').querySelector('figcaption');const lb=shareButton(caption,'lb-share');lb.hidden=!entry||entry.category==='diary';
+
+}
+function openReader(id){entryRouter.open(id);}
+
 function render(){
   $('intro').hidden=view!=='home';
   $('section-title').textContent=view==='home'?'最近留下的几页':names[view];
@@ -432,25 +749,44 @@ function render(){
   document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===filter));
   const q=$('search').value.trim().toLowerCase(), month=$('month').value;
   const entries=DATA.entries.filter(e=>(view==='home'?(filter==='all'||e.category===filter):e.category===view)&&(!month||e.day.startsWith(month))&&(!q||`${e.title} ${e.body} ${e.tags}`.toLowerCase().includes(q)));
-  $('count').textContent=`${entries.length} 页随录`;
+  entries.splice(0,entries.length,...EntryPresentation.ordered(entries,view==='home'));$('count').textContent=`${entries.length} 页随录`;
   lastEntries=entries;renderEcho();renderHeatmap();
   const ch=$('channel-link');const chUrl=view==='art'?DATA.settings.xiaohongshu:view==='music'?DATA.settings.netease:'';ch.hidden=!chUrl;if(chUrl){ch.href=chUrl;ch.className='channel-link '+(view==='art'?'cat-art':'cat-music');$('cl-seal').textContent=view==='art'?'红':'云';$('cl-name').textContent=view==='art'?'小红书':'网易云音乐';$('cl-hint').textContent=view==='art'?'画儿都在小红书 →':'歌儿都在网易云 →';}
-  $('entries').innerHTML=entries.length?entries.map(e=>`<article class="entry cat-${e.category}${e.image?' framed':''}" data-id="${esc(e.id)}"><button type="button" class="entry-open" aria-label="阅读：${esc(e.title)}"></button>${e.image?`<img src="${esc(e.image)}" alt="${esc(e.title)}" loading="lazy">`:''}<div class="entry-meta"><span class="entry-category">${names[e.category]}</span><time>${esc(e.day.replaceAll('-','.'))}</time></div><h3>${esc(e.title)}</h3><p>${esc(e.body||(e.category==='music'?'这一页，留给一段旋律。':'这一页，留给一张图。'))}</p><div class="entry-bottom"><span class="tags">${esc(e.tags.split(/[,，]/).filter(Boolean).map(t=>'# '+t.trim()).join('　'))}</span>${e.audio?`<button class="card-play" data-play="${esc(e.id)}"></button>`:''}</div></article>`).join(''):`<div class="empty"><h3>${q||month?'未寻到这一页':view==='music'?'谱架已备，静待发声':view==='art'?'画桌已备，静待落笔':'此处尚有留白'}</h3><p>${q||month?'换个关键词，或清空月份再找找。':'从今天开始，存下一点所作、所见、所思、所声。'}</p><button class="primary" id="empty-action">${q||month?'清除筛选':'回到全部'}</button></div>`;
-  $('entries').querySelectorAll('.entry-open').forEach(b=>b.onclick=()=>openReader(b.closest('.entry').dataset.id));
-  $('entries').querySelectorAll('.card-play').forEach(b=>b.onclick=e=>{e.stopPropagation();playTrack(b.dataset.play);});
-  const action=$('empty-action');if(action)action.onclick=()=>{if(q||month){$('search').value='';$('month').value='';render();}else{filter='all';render();}};syncPlayButtons();
+  $('entries').innerHTML=entries.length?entries.map(e=>EntryPresentation.card(e,names)).join(''):`<div class="empty"><h3>${q||month?'未寻到这一页':view==='music'?'谱架已备，静待发声':view==='art'?'画桌已备，静待落笔':'此处尚有留白'}</h3><p>${q||month?'换个关键词，或清空月份再找找。':'从今天开始，存下一点所作、所见、所思、所声。'}</p><button class="primary" id="empty-action">${q||month?'清除筛选':'回到全部'}</button></div>`;
+  renderFeatured();bindCards($('entries'));const action=$('empty-action');if(action)action.onclick=()=>{if(q||month){$('search').value='';$('month').value='';render();}else{filter='all';render();}};syncPlayButtons();
+}
+function bindCards(container){
+  container.querySelectorAll('.entry-open').forEach(b=>b.onclick=()=>openReader(b.closest('.entry').dataset.id));
+  container.querySelectorAll('[data-play]').forEach(b=>b.onclick=e=>{e.stopPropagation();playTrack(b.dataset.play);});
+}
+function renderFeatured(){
+  const entries=EntryPresentation.selections(DATA.entries);
+  $('featured').hidden=view!=='home'||!entries.length;
+  $('featured-entries').innerHTML=entries.map(e=>EntryPresentation.card(e,names)).join('');
+  bindCards($('featured-entries'));
 }
 function renderEcho(){const el=$('echo');const now=new Date();const md=`${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;const past=DATA.entries.filter(e=>e.day.slice(5)===md&&e.day<`${now.getFullYear()}-`);el.hidden=false;if(!past.length){$('echo-kicker').textContent='往年今日';$('echo-entry').hidden=true;$('echo-null').hidden=false;$('echo-null').textContent='往年的这一天，心歌还没有落笔。';return;}const pick=past[(now.getDate()+now.getMonth())%past.length];const years=now.getFullYear()-Number(pick.day.slice(0,4));$('echo-kicker').textContent=`${years>1?years+' 年前的今天':'去年的今天'} · ${pick.day.replaceAll('-','.')}`;$('echo-null').hidden=true;const btn=$('echo-entry');btn.hidden=false;btn.dataset.id=pick.id;btn.innerHTML=`<span class="echo-cat cat-${pick.category}">${names[pick.category]}</span><strong>${esc(pick.title)}</strong>`;}
 function renderHeatmap(){ActivityStarMap.render(DATA.entries);}
-function openReader(id){reading=id;const e=DATA.entries.find(e=>e.id===id);if(e.image&&!e.audio){openLightbox(id);return;}$('reader-meta').textContent=`${names[e.category]} / ${e.day}${e.medium?` / ${e.medium}`:''}${e.size?` / ${e.size}`:''}`;$('reader-title').textContent=e.title;$('reader-body').textContent=e.body;$('reader-tags').textContent=e.tags;$('reader-image').hidden=!e.image;if(e.image)$('reader-image').src=e.image;else $('reader-image').removeAttribute('src');syncPlayButtons();ReaderView.open($('reader'),id);}
-function openLightbox(id){lbList=lastEntries.filter(e=>e.image);const i=lbList.findIndex(e=>e.id===id);lbIndex=i<0?0:i;renderLightbox();$('lightbox').hidden=false;requestAnimationFrame(()=>$('lightbox').classList.add('open'));document.body.style.overflow='hidden';}
-function renderLightbox(){const e=lbList[lbIndex];if(!e){closeLightbox();return;}const img=$('lb-image');img.src=e.image;img.alt=e.title;img.classList.remove('lb-in');void img.offsetWidth;img.classList.add('lb-in');const meta=$('lb-meta');meta.className='lb-meta cat-'+e.category;meta.textContent=[names[e.category],e.day.replaceAll('-','.'),e.medium,e.size].filter(Boolean).join(' · ');$('lb-title').textContent=e.title;$('lb-tags').textContent=e.tags?e.tags.split(/[,，]/).filter(Boolean).map(t=>'# '+t.trim()).join('　'):'';$('lb-count').textContent=lbList.length>1?`${lbIndex+1} / ${lbList.length}`:'';}
-function stepLightbox(d){lbIndex=(lbIndex+d+lbList.length)%lbList.length;renderLightbox();}
-function closeLightbox(){$('lightbox').classList.remove('open');document.body.style.overflow='';setTimeout(()=>{$('lightbox').hidden=true;$('lb-image').removeAttribute('src');},300);}
+function showReader(id){const e=DATA.entries.find(x=>x.id===id);if(!e||e.category==='diary'){showMissing();return;}reading=id;updateShare(e);if(e.image&&!e.audio){openLightbox(id);return;}dismissLightbox();$('reader-meta').textContent=`${names[e.category]} / ${e.day}${e.medium?` / ${e.medium}`:''}${e.size?` / ${e.size}`:''}`;$('reader-title').textContent=e.title;$('reader-body').textContent=e.body;$('reader-tags').textContent=e.tags;$('reader-image').hidden=!e.image;if(e.image)$('reader-image').src=e.image;else $('reader-image').removeAttribute('src');syncPlayButtons();ReaderView.open($('reader'),id);}
+function openLightbox(id){
+  dismissReader();
+  lbList=lastEntries.filter(e=>e.image&&!e.audio);
+  const target=DATA.entries.find(e=>e.id===id);
+  if(!lbList.some(e=>e.id===id))lbList=target?[target]:[];
+  lbIndex=lbList.findIndex(e=>e.id===id);if(lbIndex<0){showMissing();return;}
+  renderLightbox();$('lightbox').hidden=false;$('lightbox').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+
+function renderLightbox(){const e=lbList[lbIndex];if(!e){closeLightbox();return;}reading=e.id;updateShare(e);const img=$('lb-image');img.src=e.image;img.alt=e.title;img.classList.remove('lb-in');void img.offsetWidth;img.classList.add('lb-in');const meta=$('lb-meta');meta.className='lb-meta cat-'+e.category;meta.textContent=[names[e.category],e.day.replaceAll('-','.'),e.medium,e.size].filter(Boolean).join(' · ');$('lb-title').textContent=e.title;$('lb-tags').textContent=e.tags?e.tags.split(/[,，]/).filter(Boolean).map(t=>'# '+t.trim()).join('　'):'';$('lb-count').textContent=lbList.length>1?`${lbIndex+1} / ${lbList.length}`:'';}
+function stepLightbox(d){if(lbList.length)entryRouter.replace(lbList[(lbIndex+d+lbList.length)%lbList.length].id);}
+function dismissLightbox(){if(!$('lightbox').hidden){$('lightbox').hidden=true;$('lightbox').classList.remove('open');if(document.body.style.position!=='fixed')document.body.style.overflow='';$('lb-image').removeAttribute('src');$('lightbox').dispatchEvent(new Event('lightboxclose'));}}
+function closeLightbox(){dismissLightbox();if(entryRouter&&EntryRoute.parse(location.hash,false).kind==='entry')entryRouter.close();}
+
 
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;render();});
-$('search').oninput=render;$('month').oninput=render;window.onhashchange=route;
+$('search').oninput=render;$('month').oninput=render;
 $('player-audio').addEventListener('play',syncPlayButtons);
 $('player-audio').addEventListener('pause',syncPlayButtons);
 $('player-close').onclick=()=>{$('player-audio').pause();$('player').hidden=true;playingId=null;syncPlayButtons();};
@@ -459,9 +795,9 @@ $('lightbox').addEventListener('click',e=>{if(e.target===$('lightbox'))closeLigh
 document.querySelector('[data-lb="close"]').onclick=closeLightbox;
 document.querySelector('[data-lb="prev"]').onclick=()=>stepLightbox(-1);
 document.querySelector('[data-lb="next"]').onclick=()=>stepLightbox(1);
-document.addEventListener('keydown',e=>{if($('lightbox').hidden)return;if(e.key==='Escape')closeLightbox();else if(e.key==='ArrowLeft')stepLightbox(-1);else if(e.key==='ArrowRight')stepLightbox(1);});
+document.addEventListener('keydown',e=>{if($('lightbox').hidden||document.querySelector('dialog[open]'))return;if(e.key==='Escape')closeLightbox();else if(e.key==='ArrowLeft')stepLightbox(-1);else if(e.key==='ArrowRight')stepLightbox(1);});
 $('bio').textContent=DATA.settings.bio||'';
 if(DATA.settings.bilibili){const a=$('bilibili');a.href=DATA.settings.bilibili;a.hidden=false;}
-route();
+startEntryRoutes();
 
 setInterval(()=>{if(!document.hidden)renderHeatmap();},60000);

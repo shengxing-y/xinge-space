@@ -37,6 +37,7 @@ TEMPLATE = """<!DOCTYPE html>
 <main>
 <section class="intro" id="intro"><div><p class="eyebrow">一隅自留地 / 公开手迹</p><h1>心有所感，<br>随笔成歌<span>。</span></h1><p id="bio"></p><div class="intro-links"><a id="bilibili" target="_blank" rel="noopener noreferrer" hidden>我的 B 站主页</a></div></div><aside class="verse"><span class="vertical">所作有所记<br>所见有所绘<br>所思有所存<br>声有所寄</span><span class="verse-seal">随录</span><p>不疾不徐 · 日日有记</p></aside></section>
 <section class="echo" id="echo" hidden><span class="echo-seal">回声</span><div class="echo-main"><p class="echo-kicker" id="echo-kicker"></p><button class="echo-entry" id="echo-entry" hidden></button><p class="echo-null" id="echo-null" hidden></p></div></section>
+<section id="featured" class="featured" hidden aria-labelledby="featured-title"><div class="section-heading"><div><p class="eyebrow">SELECTED PAGES / 精选</p><h2 id="featured-title">值得停留的几页</h2></div></div><div id="featured-entries" class="entries"></div></section>
 <section class="collection"><div class="section-heading"><div><p class="eyebrow" id="section-kicker">RECENT PAGES / 近来</p><h2 id="section-title">最近留下的几页</h2></div><span id="count"></span></div><a id="channel-link" class="channel-link" hidden target="_blank" rel="noopener"><span class="cl-seal" id="cl-seal"></span><span class="cl-text"><strong id="cl-name"></strong><em id="cl-hint"></em></span></a><div class="tools"><div id="filters" class="filters"><button data-filter="all" class="active">全部</button><button data-filter="work">工作</button><button data-filter="art">画画</button><button data-filter="life">生活</button><button data-filter="music">音乐</button></div><div class="search-tools"><label class="sr-only" for="month">按月份筛选</label><input type="month" id="month" title="按月份筛选"><label class="search">⌕ <input id="search" placeholder="寻一段文字…" aria-label="搜索标题、正文与标签"></label></div></div><div id="entries" class="entries" aria-live="polite"></div></section>
 <div class="heat"><div class="heat-head"><div><p class="eyebrow">A YEAR OF MAKING / 岁时星图</p><span class="heat-stats" id="heat-stats"></span></div><span class="hm-legend" aria-label="每日公开记录篇数"><span><i class="activity-star level-0" aria-hidden="true"><span class="activity-star-shape"></span></i>0</span><span><i class="activity-star level-1" aria-hidden="true"><span class="activity-star-shape"></span></i>1</span><span><i class="activity-star level-2" aria-hidden="true"><span class="activity-star-shape"></span></i>2</span><span><i class="activity-star level-3" aria-hidden="true"><span class="activity-star-shape"></span></i>3+ 篇</span></span></div><div class="heatmap" id="heatmap" role="group" aria-label="近一年创作星图"></div></div>
 <footer><div><strong>心歌随录</strong><span>片言记岁时。</span></div><small>心歌的公开手迹 · 本地仍在私人随录中继续书写</small></footer>
@@ -56,13 +57,30 @@ FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">'
                '<text x="20" y="28" text-anchor="middle" font-size="25" fill="#f8efdd" font-family="serif">心</text></svg>')
 
 
+def public_entries(con):
+    # 白名单隔离未来私有字段，并兼容未运行新服务迁移的旧数据库。
+    fields = ('id', 'category', 'title', 'day', 'body', 'tags', 'image', 'medium', 'size', 'audio')
+    entries = []
+    for row in con.execute("SELECT * FROM entries WHERE category != 'diary' ORDER BY day DESC, rowid DESC"):
+        source = dict(row)
+        entry = {key: source.get(key, '') for key in fields}
+        for key in ('pinned', 'featured'):
+            entry[key] = bool(source.get(key, False))
+        entries.append(entry)
+    return entries
+
+
+def serialize_data(data):
+    # 必须保留反斜杠字面量，避免正文中的 </script> 提前结束内嵌脚本。
+    return json.dumps(data, ensure_ascii=False).replace('<', '\\u003c')
+
+
 def main():
     if not DB.exists():
         sys.exit('找不到数据库 data/journal.sqlite3，请先运行过 server.py 一次。')
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    entries = [dict(r) for r in con.execute(
-        "SELECT * FROM entries WHERE category != 'diary' ORDER BY day DESC, rowid DESC")]
+    entries = public_entries(con)
     settings = {r['key']: r['value'] for r in con.execute('SELECT * FROM settings')}
     con.close()
 
@@ -100,7 +118,7 @@ def main():
             .replace('%%CSS%%', (ROOT / 'style.css').read_text(encoding='utf-8'))
             .replace('%%JS%%', (ROOT / 'static_app.js').read_text(encoding='utf-8'))
             .replace('%%SKY%%', (ROOT / 'sky.js').read_text(encoding='utf-8'))
-            .replace('%%DATA%%', json.dumps(data, ensure_ascii=False)))
+            .replace('%%DATA%%', serialize_data(data)))
     (SITE / 'index.html').write_text(html, encoding='utf-8')
 
     print(f'已导出 site/：{len(entries)} 页随录，{n_img} 张图片，{n_aud} 段音频（私人日记未导出）')

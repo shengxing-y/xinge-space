@@ -367,6 +367,22 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent-glow-stro
 .dialog-bottom span{font-size:12px;color:var(--muted)}
 .prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:2.05;color:var(--ink-soft)}
 .reader-image{max-width:100%;max-height:65vh;display:block;object-fit:contain;margin:20px auto;border:1px solid var(--line-deep);padding:10px;background:var(--mat)}
+.featured{margin:8px 0 36px;padding:24px 0 30px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.featured .section-heading{margin-bottom:18px}
+.entry-labels{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.entry-badge{display:inline-block;padding:1px 6px;border:1px solid var(--line-deep);border-radius:2px;color:var(--ochre);font-size:10px;letter-spacing:1px;white-space:nowrap}
+.entry-placement{border:1px solid var(--line);padding:12px 16px;margin:0 0 18px;display:flex;gap:16px;flex-wrap:wrap}
+.entry-placement legend{font-size:13px;padding:0 6px;color:var(--ink-soft)}
+.entry-placement label{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.entry-placement input{width:16px;height:16px;padding:0;accent-color:var(--ochre)}
+.entry-placement p{flex-basis:100%;margin:0;font-size:12px;color:var(--muted)}
+.reader-actions{display:flex;align-items:center;gap:10px;flex:none}
+.entry-share{position:relative;z-index:2;min-height:36px;padding:6px 10px;border:1px solid var(--line-deep);border-radius:3px;font-size:12px;color:var(--ink-soft);white-space:nowrap}
+.entry-share:hover{color:var(--ochre);border-color:var(--ochre)}
+#lb-share{color:var(--ink-soft);margin-top:8px}
+#share-dialog input{display:block;width:100%;margin:16px 0;font-size:14px}
+#share-dialog p{font-size:14px;color:var(--ink-soft)}
+#share-status{position:fixed;z-index:400;left:50%;bottom:24px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);background:var(--floating-bg);color:var(--ink);border:1px solid var(--line-deep);padding:10px 16px;font-size:13px;pointer-events:none}
 /* 阅读器只滚动一层，关闭区始终留在视野内。 */
 #reader{--reader-gutter:36px;width:min(740px,calc(100% - 32px));max-height:90vh;max-height:calc(100dvh - 48px);padding:0 var(--reader-gutter) 32px;overflow:auto;overscroll-behavior:contain;scroll-behavior:auto}
 #reader .reader-top{position:sticky;top:0;z-index:3;align-items:center;background:var(--paper-2);margin:0 calc(-1 * var(--reader-gutter)) 24px;padding:14px var(--reader-gutter);border-bottom:1px solid var(--line)}

@@ -44,12 +44,16 @@ def connect():
     return con
 
 with connect() as con:
-    con.execute('CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, category TEXT, title TEXT, day TEXT, body TEXT, tags TEXT, image TEXT, medium TEXT DEFAULT \'\', size TEXT DEFAULT \'\', audio TEXT DEFAULT \'\')')
+    con.execute('CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, category TEXT, title TEXT, day TEXT, body TEXT, tags TEXT, image TEXT, medium TEXT DEFAULT \'\', size TEXT DEFAULT \'\', audio TEXT DEFAULT \'\', pinned INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0)')
     # 旧库自动迁移：补 medium / size / audio 三列
     _cols = {r['name'] for r in con.execute('PRAGMA table_info(entries)')}
     for _col in ['medium', 'size', 'audio']:
         if _col not in _cols:
             con.execute(f"ALTER TABLE entries ADD COLUMN {_col} TEXT DEFAULT ''")
+    # 布尔标记独立迁移，不能沿用上面的 TEXT 列默认值。
+    for _col in ['pinned', 'featured']:
+        if _col not in _cols:
+            con.execute(f'ALTER TABLE entries ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0')
     con.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
     if not con.execute("SELECT 1 FROM settings WHERE key='initialized'").fetchone():
         for category, title, body, tags in [
@@ -71,6 +75,11 @@ def validate_entry(obj):
         result[key] = value
     if result['category'] not in ['work','art','life','music','diary'] or not result['title'].strip():
         raise ValueError('请选择分类并填写标题')
+    for key in ('pinned', 'featured'):
+        value = obj.get(key, False)
+        if type(value) is not bool:
+            raise ValueError('置顶和精选标记必须是布尔值')
+        result[key] = value if result['category'] != 'diary' else False
     date.fromisoformat(result['day'])
     if result['image']:
         prefix, payload = result['image'].split(',', 1)
@@ -106,9 +115,16 @@ def validate_entry(obj):
         raise ValueError('记录编号不正确')
     return result
 
+def entry_data(row):
+    entry = dict(row)
+    for key in ('pinned', 'featured'):
+        entry[key] = bool(entry.get(key, False)) if entry['category'] != 'diary' else False
+    return entry
+
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, code, data, kind='application/json; charset=utf-8'):
-        raw = json.dumps(data, ensure_ascii=False).encode() if kind.startswith('application/json') else data
+        raw = json.dumps(data, ensure_ascii=False).replace('<', '\\u003c').encode() if kind.startswith('application/json') else data
         self.send_response(code)
         self.send_header('Content-Type', kind)
         self.send_header('Content-Length', str(len(raw)))
@@ -128,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?')[0]
         if path in ['/api/state', '/api/export']:
             with connect() as con:
-                state = {'version':1, 'entries':[dict(r) for r in con.execute('SELECT * FROM entries ORDER BY day DESC, rowid DESC')], 'settings':{r['key']:r['value'] for r in con.execute('SELECT * FROM settings')}}
+                state = {'version':1, 'entries':[entry_data(r) for r in con.execute('SELECT * FROM entries ORDER BY day DESC, rowid DESC')], 'settings':{r['key']:r['value'] for r in con.execute('SELECT * FROM settings')}}
             if path == '/api/state':
                 # 列表页不带音频数据，按需从 /api/audio 加载（否则每次打开都拉全量 base64）
                 for e in state['entries']:
@@ -168,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
                         # 编辑已有条目但没换音频：保留库里的原音频
                         old = con.execute('SELECT audio FROM entries WHERE id=?', (e['id'],)).fetchone()
                         e['audio'] = old['audio'] if old else ''
-                    con.execute('INSERT OR REPLACE INTO entries (id,category,title,day,body,tags,image,medium,size,audio) VALUES (:id,:category,:title,:day,:body,:tags,:image,:medium,:size,:audio)', e)
+                    con.execute('INSERT OR REPLACE INTO entries (id,category,title,day,body,tags,image,medium,size,audio,pinned,featured) VALUES (:id,:category,:title,:day,:body,:tags,:image,:medium,:size,:audio,:pinned,:featured)', e)
                 elif self.path == '/api/delete':
                     con.execute('DELETE FROM entries WHERE id=?', (obj['id'],))
                 elif self.path == '/api/settings':
@@ -178,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError('请选择心歌随录的备份文件')
                     entries = [validate_entry(e) for e in obj['entries']]
                     for e in entries:
-                        con.execute('INSERT OR REPLACE INTO entries (id,category,title,day,body,tags,image,medium,size,audio) VALUES (:id,:category,:title,:day,:body,:tags,:image,:medium,:size,:audio)', e)
+                        con.execute('INSERT OR REPLACE INTO entries (id,category,title,day,body,tags,image,medium,size,audio,pinned,featured) VALUES (:id,:category,:title,:day,:body,:tags,:image,:medium,:size,:audio,:pinned,:featured)', e)
                     self.save_settings(con, obj.get('settings', {}))
                 else:
                     return self.reply(404, {'error':'操作不存在'})

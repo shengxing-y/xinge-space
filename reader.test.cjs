@@ -20,7 +20,7 @@ function fixture() {
     getComputedStyle:()=>({paddingRight:'0'}), requestAnimationFrame:callback=>queue.push(callback),
     scrollTo(x, y) { this.scrollX=x; this.scrollY=y; } };
   const doc = { body:{style:makeStyle()}, documentElement:{clientWidth:1000,style:makeStyle()},
-    defaultView:win, activeElement:trigger,
+    defaultView:win, activeElement:trigger, getElementById:()=>null,
     querySelector:()=>nextDialog, querySelectorAll:selector=>selector.startsWith('.entry')?[]:[fallback] };
   const listeners = {};
   const closeButton = { focus() { doc.activeElement=this; } };

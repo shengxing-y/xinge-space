@@ -10,8 +10,9 @@
 python -m py_compile server.py export_static.py verify.py build_assets.py sync_site.py
 python build_assets.py --check
 python verify.py
-node --test activity.test.cjs theme.test.cjs reader.test.cjs star-identify.test.cjs sky-names.test.cjs
+node --test *.test.cjs
 node sky.test.cjs
+python pin-feature.test.py
 ```
 
 `verify.py` 在临时目录初始化与验证数据库，不读取个人数据。

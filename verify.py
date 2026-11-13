@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as tmp:
     spec.loader.exec_module(server)
     server.DB = Path(tmp) / 'check.sqlite3'
     with server.connect() as con:
-        con.execute("CREATE TABLE entries (id TEXT PRIMARY KEY, category TEXT, title TEXT, day TEXT, body TEXT, tags TEXT, image TEXT, medium TEXT DEFAULT '', size TEXT DEFAULT '', audio TEXT DEFAULT '')")
+        con.execute("CREATE TABLE entries (id TEXT PRIMARY KEY, category TEXT, title TEXT, day TEXT, body TEXT, tags TEXT, image TEXT, medium TEXT DEFAULT '', size TEXT DEFAULT '', audio TEXT DEFAULT '', pinned INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0)")
         con.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
     http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
     server.PORT = http.server_port

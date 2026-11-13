@@ -39,6 +39,20 @@ def main():
         (heat.start(), heat.end(), new_heat.group(0)),
         (readers[0].start(), readers[0].end(), new_readers[0].group(0)),
     ]
+    featured_pattern = r'<section id="featured".*?</section>'
+    desired_featured = list(re.finditer(featured_pattern, template, re.S))
+    existing_featured = list(re.finditer(featured_pattern, text, re.S))
+    if len(desired_featured) != 1 or len(existing_featured) > 1:
+        raise SystemExit('Unrecognized featured container; nothing written.')
+    if existing_featured:
+        item = existing_featured[0]
+        changes.append((item.start(), item.end(), desired_featured[0].group(0)))
+    else:
+        anchor = '<section class="collection">'
+        if text.count(anchor) != 1:
+            raise SystemExit('Collection anchor not unique; nothing written.')
+        position = text.index(anchor)
+        changes.append((position, position, desired_featured[0].group(0) + '\n'))
     updated = text
     for start, end, replacement in sorted(changes, reverse=True):
         updated = updated[:start] + replacement + updated[end:]

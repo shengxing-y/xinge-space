@@ -25,6 +25,11 @@
     if (states.get(state.dialog) !== state || state.dialog.open) return;
     const doc = state.dialog.ownerDocument;
     const win = doc.defaultView;
+    const lightbox = doc.getElementById('lightbox');
+    if (lightbox && !lightbox.hidden) {
+      lightbox.addEventListener('lightboxclose', () => win.requestAnimationFrame(() => release(state)), { once: true });
+      return;
+    }
     const next = doc.querySelector('dialog[open]');
     if (next) {
       // Editing can immediately replace the reader. Keep its scroll lock and focus.
